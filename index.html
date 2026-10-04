@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Real-Time Collaborative Editor</title>
+  <style>
+    :root {
+      --bg: #f0f2f5;
+      --card: #ffffff;
+      --text: #1a1a2e;
+      --muted: #6b7280;
+      --border: #e5e7eb;
+      --accent: #3b82f6;
+      --toolbar: #1f2937;
+      --toolbar-text: #ffffff;
+      --editor-bg: #ffffff;
+    }
+
+    body.dark {
+      --bg: #121212;
+      --card: #1e1e1e;
+      --text: #e9ecef;
+      --muted: #adb5bd;
+      --border: #333;
+      --accent: #60a5fa;
+      --toolbar: #0f172a;
+      --toolbar-text: #e9ecef;
+      --editor-bg: #1a1a1a;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      transition: background 0.3s, color 0.3s;
+    }
+
+    /* ---------- Overlays ---------- */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.6);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+    }
+    .overlay.show { display: flex; }
+
+    .modal-card {
+      width: 100%;
+      max-width: 380px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 26px;
+      box-shadow: 0 15px 40px rgba(0,0,0,0.35);
+    }
+    .modal-card h2 { margin-bottom: 6px; font-size: 1.3rem; }
+    .modal-card p { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
+
+    .field { margin-bottom: 14px; }
+    .field label { display: block; font-size: 0.85rem; margin-bottom: 5px; }
+    .field input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--editor-bg);
+      color: var(--text);
+      font-size: 0.95rem;
+    }
+    .field input:focus { outline: none; border-color: var(--accent); }
+
+    .btn {
+      width: 100%;
+      padding: 11px;
+      border: none;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 1rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    .btn:hover { filter: brightness(0.92); }
+
+    .switch-text { text-align: center; margin-top: 14px; font-size: 0.85rem; color: var(--muted); }
+    .switch-text a { color: var(--accent); cursor: pointer; text-decoration: none; }
+    .error-msg { color: #dc2626; font-size: 0.8rem; margin-top: 8px; min-height: 16px; }
+
+    /* ---------- Toolbar ---------- */
+    .toolbar {
+      background: var(--toolbar);
+      color: var(--toolbar-text);
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .toolbar h1 { font-size: 1.05rem; margin-right: auto; }
+    .toolbar label { font-size: 0.8rem; }
+    .toolbar input {
+      padding: 6px 9px;
+      border-radius: 6px;
+      border: 1px solid #374151;
+      background: #111827;
+      color: #fff;
+      font-size: 0.85rem;
+    }
+    .icon-btn {
+      padding: 7px 11px;
+      border: none;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.15);
+      color: var(--toolbar-text);
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    .icon-btn:hover { background: rgba(255,255,255,0.28); }
+
+    .presence {
+      background: var(--card);
+      color: var(--muted);
+      padding: 8px 18px;
+      font-size: 0.85rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .user-chip {
+      background: var(--accent);
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 10px;
+      margin-left: 6px;
+      font-size: 0.78rem;
+    }
+
+    /* ---------- Editor ---------- */
+    .editor-wrap { flex: 1; display: flex; padding: 18px; gap: 16px; }
+
+    textarea {
+      flex: 1;
+      padding: 16px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      font-family: "Fira Code", "Courier New", monospace;
+      font-size: 1rem;
+      line-height: 1.6;
+      resize: none;
+      background: var(--editor-bg);
+      color: var(--text);
+    }
+    textarea:focus { outline: none; border-color: var(--accent); }
+
+    .side-panel {
+      width: 220px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+    }
+    .side-panel h3 { font-size: 0.9rem; margin-bottom: 10px; }
+    .side-panel p { font-size: 0.82rem; color: var(--muted); margin-bottom: 8px; }
+    .side-panel ul { list-style: none; }
+    .side-panel li {
+      font-size: 0.85rem;
+      padding: 6px 8px;
+      background: var(--editor-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      margin-bottom: 6px;
+    }
+
+    .status {
+      padding: 6px 18px;
+      font-size: 0.8rem;
+      color: var(--muted);
+      background: var(--card);
+      border-top: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== LOGIN ===== -->
+  <div class="overlay show" id="loginOverlay">
+    <div class="modal-card">
+      <h2>Login</h2>
+      <p>Sign in to collaborate. New here? Create an account below.</p>
+      <form id="loginForm">
+        <div class="field"><label>Username</label><input type="text" id="loginUser" placeholder="e.g. student" required /></div>
+        <div class="field"><label>Password</label><input type="password" id="loginPass" placeholder="••••••••" required /></div>
+        <button class="btn" type="submit">Login</button>
+        <div class="error-msg" id="loginError"></div>
+      </form>
+      <p class="switch-text">Don't have an account? <a onclick="showRegister()">Register</a></p>
+    </div>
+  </div>
+
+  <!-- ===== REGISTER ===== -->
+  <div class="overlay" id="registerOverlay">
+    <div class="modal-card">
+      <h2>Create Account</h2>
+      <p>Choose a username and password.</p>
+      <form id="registerForm">
+        <div class="field"><label>Username</label><input type="text" id="regUser" required /></div>
+        <div class="field"><label>Password</label><input type="password" id="regPass" placeholder="Min 4 characters" required /></div>
+        <div class="field"><label>Confirm Password</label><input type="password" id="regPass2" required /></div>
+        <button class="btn" type="submit">Register</button>
+        <div class="error-msg" id="regError"></div>
+      </form>
+      <p class="switch-text">Already have an account? <a onclick="showLogin()">Login</a></p>
+    </div>
+  </div>
+
+  <!-- ===== CHANGE PASSWORD ===== -->
+  <div class="overlay" id="passOverlay">
+    <div class="modal-card">
+      <h2>Change Password</h2>
+      <p>Enter your current and new password.</p>
+      <form id="passForm">
+        <div class="field"><label>Current Password</label><input type="password" id="curPass" required /></div>
+        <div class="field"><label>New Password</label><input type="password" id="newPass" placeholder="Min 4 characters" required /></div>
+        <div class="field"><label>Confirm New Password</label><input type="password" id="newPass2" required /></div>
+        <button class="btn" type="submit">Update Password</button>
+        <div class="error-msg" id="passError"></div>
+      </form>
+      <p class="switch-text"><a onclick="closeOverlay('passOverlay')">Cancel</a></p>
+    </div>
+  </div>
+
+  <!-- ===== MAIN APP ===== -->
+  <div class="toolbar">
+    <h1>📝 Real-Time Collaborative Editor</h1>
+    <label>Room <input type="text" id="roomInput" value="default" style="width:100px" /></label>
+    <button class="icon-btn" id="themeBtn" title="Toggle theme">🌙</button>
+    <button class="icon-btn" id="saveBtn" title="Save to localStorage">💾</button>
+    <button class="icon-btn" id="exportBtn" title="Export as text file">⬇️</button>
+    <button class="icon-btn" id="clearBtn" title="Clear document">🗑️</button>
+    <button class="icon-btn" id="passBtn" title="Change password">🔑</button>
+    <button class="icon-btn" id="logoutBtn" title="Logout">🚪</button>
+  </div>
+
+  <div class="presence">
+    Online: <span id="userList">—</span>
+    <span style="margin-left:16px" id="stats"></span>
+  </div>
+
+  <div class="editor-wrap">
+    <textarea id="editor" placeholder="Start typing... other tabs in this room see your edits live."></textarea>
+    <div class="side-panel">
+      <h3>Connected Users</h3>
+      <ul id="onlineUsers"><li>—</li></ul>
+      <h3 style="margin-top:16px">How to test</h3>
+      <p>Open this same file in two tabs, use the same room name, and type. Changes sync live via BroadcastChannel.</p>
+    </div>
+  </div>
+
+  <div class="status" id="status">Ready.</div>
+
+  <script>
+    // ================= STATE =================
+    let currentUser = null;
+    let room = 'default';
+    let applyingRemote = false;
+
+    // BroadcastChannel for cross-tab real-time sync (same browser)
+    const channel = new BroadcastChannel('collab-editor');
+    const presenceChannel = new BroadcastChannel('collab-presence');
+
+    // ================= HELPERS =================
+    const $ = id => document.getElementById(id);
+
+    function getUsers() { return JSON.parse(localStorage.getItem('collab_users') || '{}'); }
+    function saveUsers(u) { localStorage.setItem('collab_users', JSON.stringify(u)); }
+
+    function showOverlay(id) { $(id).classList.add('show'); }
+    function closeOverlay(id) { $(id).classList.remove('show'); }
+
+    function status(msg) {
+      $('status').textContent = msg;
+      setTimeout(() => { if ($('status').textContent === msg) $('status').textContent = ''; }, 3000);
+    }
+
+    function escapeHtml(s) {
+      return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+    }
+
+    // ================= THEME =================
+    function loadTheme() {
+      const dark = localStorage.getItem('collab_theme') === 'dark';
+      document.body.classList.toggle('dark', dark);
+      $('themeBtn').textContent = dark ? '☀️' : '🌙';
+    }
+    $('themeBtn').addEventListener('click', () => {
+      const dark = document.body.classList.toggle('dark');
+      localStorage.setItem('collab_theme', dark ? 'dark' : 'light');
+      $('themeBtn').textContent = dark ? '☀️' : '🌙';
+    });
+
+    // ================= AUTH =================
+    function showLogin() { closeOverlay('registerOverlay'); showOverlay('loginOverlay'); }
+    function showRegister() { closeOverlay('loginOverlay'); showOverlay('registerOverlay'); }
+
+    $('loginForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const user = $('loginUser').value.trim();
+      const pass = $('loginPass').value;
+      const users = getUsers();
+      $('loginError').textContent = '';
+      if (!users[user]) { $('loginError').textContent = 'User not found. Please register.'; return; }
+      if (users[user] !== pass) { $('loginError').textContent = 'Incorrect password.'; return; }
+      currentUser = user;
+      localStorage.setItem('collab_session', user);
+      enterApp();
+    });
+
+    $('registerForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const user = $('regUser').value.trim();
+      const pass = $('regPass').value;
+      const pass2 = $('regPass2').value;
+      const users = getUsers();
+      $('regError').textContent = '';
+      if (users[user]) { $('regError').textContent = 'Username already exists.'; return; }
+      if (pass.length < 4) { $('regError').textContent = 'Password must be at least 4 characters.'; return; }
+      if (pass !== pass2) { $('regError').textContent = 'Passwords do not match.'; return; }
+      users[user] = pass;
+      saveUsers(users);
+      currentUser = user;
+      localStorage.setItem('collab_session', user);
+      enterApp();
+    });
+
+    $('passForm').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const cur = $('curPass').value;
+      const np = $('newPass').value;
+      const np2 = $('newPass2').value;
+      const users = getUsers();
+      $('passError').textContent = '';
+      if (users[currentUser] !== cur) { $('passError').textContent = 'Current password is incorrect.'; return; }
+      if (np.length < 4) { $('passError').textContent = 'New password must be at least 4 characters.'; return; }
+      if (np !== np2) { $('passError').textContent = 'New passwords do not match.'; return; }
+      users[currentUser] = np;
+      saveUsers(users);
+      closeOverlay('passOverlay');
+      $('curPass').value = $('newPass').value = $('newPass2').value = '';
+      status('✅ Password updated.');
+    });
+
+    $('passBtn').addEventListener('click', () => showOverlay('passOverlay'));
+
+    $('logoutBtn').addEventListener('click', () => {
+      leavePresence();
+      currentUser = null;
+      localStorage.removeItem('collab_session');
+      $('loginUser').value = '';
+      $('loginPass').value = '';
+      showOverlay('loginOverlay');
+      status('Logged out.');
+    });
+
+    // ================= ENTER APP =================
+    function enterApp() {
+      closeOverlay('loginOverlay');
+      closeOverlay('registerOverlay');
+      loadDoc();
+      announcePresence();
+      updateStats();
+      status(`Welcome, ${currentUser}!`);
+    }
+
+    // ================= PERSISTENCE =================
+    function docKey() { return `doc_${room}`; }
+    function loadDoc() {
+      const saved = localStorage.getItem(docKey());
+      $('editor').value = saved || '';
+    }
+    function saveDoc() {
+      localStorage.setItem(docKey(), $('editor').value);
+    }
+
+    // ================= PRESENCE (BroadcastChannel) =================
+    const localId = Math.random().toString(36).slice(2);
+    let onlineUsers = {};
+
+    function announcePresence() {
+      // Ask others to re-broadcast their presence
+      presenceChannel.postMessage({ type: 'hello', id: localId, user: currentUser, room });
+    }
+    function leavePresence() {
+      presenceChannel.postMessage({ type: 'bye', id: localId, user: currentUser, room });
+      delete onlineUsers[localId];
+      renderPresence();
+    }
+
+    presenceChannel.onmessage = (e) => {
+      const d = e.data;
+      if (d.room !== room) return;
+      if (d.type === 'hello') {
+        onlineUsers[d.id] = d.user;
+        // Respond so the newcomer knows we're here
+        presenceChannel.postMessage({ type: 'here', id: localId, user: currentUser, room });
+        renderPresence();
+      } else if (d.type === 'here') {
+        onlineUsers[d.id] = d.user;
+        renderPresence();
+      } else if (d.type === 'bye') {
+        delete onlineUsers[d.id];
+        renderPresence();
+      }
+    };
+
+    function renderPresence() {
+      onlineUsers[localId] = currentUser;
+      const users = Object.values(onlineUsers);
+      $('userList').innerHTML = users.map(u => `<span class="user-chip">${escapeHtml(u)}</span>`).join(' ');
+      $('onlineUsers').innerHTML = users.length ? users.map(u => `<li>${escapeHtml(u)}</li>`).join('') : '<li>—</li>';
+    }
+
+    // ================= REAL-TIME SYNC (BroadcastChannel) =================
+    channel.onmessage = (e) => {
+      const d = e.data;
+      if (d.room !== room) return;
+      if (d.type === 'edit') {
+        applyingRemote = true;
+        $('editor').value = d.content;
+        applyingRemote = false;
+        updateStats();
+      }
+    };
+
+    let editTimer = null;
+    $('editor').addEventListener('input', () => {
+      updateStats();
+      if (applyingRemote) return;
+      clearTimeout(editTimer);
+      editTimer = setTimeout(() => {
+        const content = $('editor').value;
+        saveDoc();
+        channel.postMessage({ type: 'edit', room, content });
+      }, 80);
+    });
+
+    // ================= STATS =================
+    function updateStats() {
+      const text = $('editor').value;
+      const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+      $('stats').textContent = `${words} words · ${text.length} chars`;
+    }
+
+    // ================= ROOM CHANGE =================
+    $('roomInput').addEventListener('change', () => {
+      leavePresence();
+      room = $('roomInput').value.trim() || 'default';
+      loadDoc();
+      announcePresence();
+      updateStats();
+      status(`Switched to room "${room}".`);
+    });
+
+    // ================= TOOLBAR ACTIONS =================
+    $('saveBtn').addEventListener('click', () => { saveDoc(); status('✅ Saved to localStorage.'); });
+
+    $('exportBtn').addEventListener('click', () => {
+      const blob = new Blob([$('editor').value], { type: 'text/plain' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `document_${room}.txt`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      status('✅ Document exported.');
+    });
+
+    $('clearBtn').addEventListener('click', () => {
+      if (confirm('Clear this document?')) {
+        $('editor').value = '';
+        saveDoc();
+        channel.postMessage({ type: 'edit', room, content: '' });
+        updateStats();
+        status('Document cleared.');
+      }
+    });
+
+    // ================= INIT =================
+    function init() {
+      loadTheme();
+      const session = localStorage.getItem('collab_session');
+      if (session && getUsers()[session]) {
+        currentUser = session;
+        enterApp();
+      } else {
+        showOverlay('loginOverlay');
+      }
+    }
+    init();
+  </script>
+</body>
+</html>
